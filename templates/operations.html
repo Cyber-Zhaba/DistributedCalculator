@@ -1,0 +1,22 @@
+{{ define "content" }}
+<form action="/update_operations" method="post">
+  <table>
+    <thead>
+    <tr>
+      <th>Type</th>
+      <th>Time</th>
+    </tr>
+    </thead>
+    <tbody>
+    {{ range .Operations }}
+    <tr>
+      <td>{{ .type }}</td>
+      <td><input name="time_{{ .type }}" value="{{ .duration }}"></td>
+    </tr>
+    {{ end }}
+    </tbody>
+  </table>
+
+  <button type="submit">Submit</button>
+</form>
+{{ end }}

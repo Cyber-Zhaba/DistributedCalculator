@@ -1,0 +1,11 @@
+{{ define "content" }}
+<form action="/add_equation" method="post">
+  <label for="id">Enter a number:</label><br>
+  <input id="id" name="id" placeholder="Enter a number" type="number"><br><br>
+
+  <label for="text">Enter some text:</label><br>
+  <input id="text" name="text" placeholder="Enter some text" required type="text"><br><br>
+
+  <input type="submit" value="Submit">
+</form>
+{{ end }}
