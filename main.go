@@ -3,12 +3,14 @@ package main
 import (
 	"DistributedCalculator/agent"
 	"DistributedCalculator/db"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 )
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
@@ -23,7 +25,7 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		Title string
 	}{
-		Title: "Home",
+		Title: "Добавить выражение",
 	}
 
 	err = tmpl.ExecuteTemplate(w, "base.html", data)
@@ -45,6 +47,7 @@ func addEquationHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		idStr := r.FormValue("id")
 		text := r.FormValue("text")
+		fmt.Println(text)
 
 		database, err := db.Connect("data.db")
 		if err != nil {
@@ -52,7 +55,7 @@ func addEquationHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer func() {
-			if err := database.Close(); err != nil {
+			if err = database.Close(); err != nil {
 				log.Fatal(err)
 			}
 		}()
@@ -60,31 +63,74 @@ func addEquationHandler(w http.ResponseWriter, r *http.Request) {
 		id := 0
 		if idStr != "" {
 			id, err = strconv.Atoi(idStr)
-			if err != nil {
-				log.Fatal(err)
+			http.Redirect(w, r, fmt.Sprintf("/get/%d", id), http.StatusSeeOther)
+		} else {
+			// Check if the equation is valid
+			if !agent.ValidEquation(text, 0, len(text)) {
+				http.Error(w, "Invalid equation", http.StatusBadRequest)
+				log.Println("Invalid equation")
 				return
 			}
-		}
-		// Check if the equation is valid
-		if !agent.ValidEquation(text, 0, len(text)) {
-			http.Error(w, "Invalid equation", http.StatusBadRequest)
-			log.Println("Invalid equation")
-			return
-		}
-		id, err = database.AddEquation(id, text, "Equations")
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		go func() {
-			err = agent.Evaluate(id)
+			id, err = database.AddEquation(id, text, "Equations")
 			if err != nil {
 				log.Fatal(err)
 			}
-		}()
 
-		http.Redirect(w, r, "/", http.StatusSeeOther)
+			go func() {
+				err = agent.Evaluate(id)
+				if err != nil {
+					log.Fatal(err)
+				}
+			}()
+
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+		}
 	}
+}
+
+func getEquationHandler(w http.ResponseWriter, r *http.Request) {
+	// Parse the URL path to get the id
+	path := strings.Split(r.URL.Path, "/")
+	idStr := path[len(path)-1]
+
+	// Convert the id to an integer
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	// Connect to the database
+	database, err := db.Connect("data.db")
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+	defer func() {
+		if err = database.Close(); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	// Get the equation with the given id
+	equation, status, result := database.GetEquationInfo(id)
+	if err != nil {
+		http.Error(w, "Equation not found", http.StatusNotFound)
+		return
+	}
+	jsonStr, err := json.Marshal(map[string]interface{}{
+		"id":     id,
+		"text":   equation,
+		"status": status,
+		"result": result,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Fatal(err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(jsonStr)
 }
 
 func equationsHandler(w http.ResponseWriter, r *http.Request) {
@@ -115,7 +161,7 @@ func equationsHandler(w http.ResponseWriter, r *http.Request) {
 		Title     string
 		Equations []map[string]interface{}
 	}{
-		Title:     "Equations",
+		Title:     "Выражения",
 		Equations: values,
 	}
 
@@ -157,7 +203,7 @@ func operationsHandler(w http.ResponseWriter, r *http.Request) {
 		Title      string
 		Operations []map[string]interface{}
 	}{
-		Title:      "Equations",
+		Title:      "Операции",
 		Operations: values,
 	}
 
@@ -196,7 +242,7 @@ func updateOperationsHandler(w http.ResponseWriter, r *http.Request) {
 
 		err = database.UpdateOperations(types, times)
 		if err != nil {
-			fmt.Println(err)
+			log.Fatal(err)
 		}
 
 		http.Redirect(w, r, "/operations", http.StatusSeeOther)
@@ -232,7 +278,7 @@ func computersHandler(w http.ResponseWriter, r *http.Request) {
 		Title     string
 		Computers []map[string]interface{}
 	}{
-		Title:     "Computers",
+		Title:     "Вычислители",
 		Computers: values,
 	}
 
@@ -305,7 +351,9 @@ func main() {
 	log.Println("This is a test log message")
 
 	http.HandleFunc("/", indexHandler)
+
 	http.HandleFunc("/add_equation", addEquationHandler)
+	http.HandleFunc("/get/", getEquationHandler)
 	http.HandleFunc("/equations", equationsHandler)
 	http.HandleFunc("/operations", operationsHandler)
 	http.HandleFunc("/computers", computersHandler)

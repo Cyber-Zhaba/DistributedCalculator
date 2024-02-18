@@ -1,21 +1,23 @@
 {{ define "content" }}
-<form action="/add_computer" method="post">
-  <table>
-    <thead>
-    <tr>
-      <th>ID</th>
-      <th>Equation ID</th>
-    </tr>
-    </thead>
-    <tbody>
-    {{ range .Computers }}
-    <tr>
-      <td>{{ .ID }}</td>
-      <td>{{ if .EquationID }}{{ .EquationID }}{{ else }}Empty{{ end }}</td>
-    </tr>
-    {{ end }}
-    </tbody>
-  </table>
-  <button type="submit">Добвить</button>
-</form>
+<div class="container">
+  <form action="/add_computer" method="post">
+    <table class="table table-striped">
+      <thead>
+      <tr>
+        <th>ID</th>
+        <th>ID выражения</th>
+      </tr>
+      </thead>
+      <tbody>
+      {{ range .Computers }}
+      <tr>
+        <td>{{ .ID }}</td>
+        <td>{{ if .EquationID }}{{ .EquationID }}{{ else }}Empty{{ end }}</td>
+      </tr>
+      {{ end }}
+      </tbody>
+    </table>
+    <button type="submit" class="btn btn-primary">Добавить</button>
+  </form>
+</div>
 {{ end }}

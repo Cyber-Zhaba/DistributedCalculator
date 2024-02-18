@@ -1,23 +1,22 @@
 {{ define "content" }}
-<table>
+<table class="table table-striped mb-3 mx-2">
   <thead>
   <tr>
-    <th>ID</th>
-    <th>Text</th>
-    <th>Status</th>
-    <th>Result</th>
+    <th class="mb-2 mx-1">ID</th>
+    <th class="mb-2 mx-1">Текст выражения</th>
+    <th class="mb-2 mx-1">Статус</th>
+    <th class="mb-2 mx-1">Результат</th>
   </tr>
   </thead>
   {{ range .Equations }}
   <tr>
-    <td>{{ .ID }}</td>
-    <td>{{ .text }}</td>
-    <td>{{ .status }}</td>
+    <td class="mb-2  mx-1">{{ .ID }}</td>
+    <td class="mb-2 mx-1">{{ .text }}</td>
+    <td class="mb-2 mx-1">{{ .status }}</td>
     {{ if eq .status "Computed" }}
-    <td>{{ .result }}</td>
+    <td class="mb-2 mx-1">{{ .result }}</td>
     {{ end }}
   </tr>
   {{ end }}
 </table>
 {{ end }}
-

@@ -1,22 +1,24 @@
 {{ define "content" }}
-<form action="/update_operations" method="post">
-  <table>
-    <thead>
-    <tr>
-      <th>Type</th>
-      <th>Time</th>
-    </tr>
-    </thead>
-    <tbody>
-    {{ range .Operations }}
-    <tr>
-      <td>{{ .type }}</td>
-      <td><input name="time_{{ .type }}" value="{{ .duration }}"></td>
-    </tr>
-    {{ end }}
-    </tbody>
-  </table>
+<div class="container">
+  <form action="/update_operations" method="post">
+    <table class="table table-striped table-sm">
+      <thead>
+      <tr>
+        <th class="font-weight-bold text-center">Тип</th>
+        <th class="font-weight-bold text-center">Время ms</th>
+      </tr>
+      </thead>
+      <tbody>
+      {{ range .Operations }}
+      <tr>
+        <td class="font-weight-bold text-center">{{ .type }}</td>
+        <td><input class="form-control" name="time_{{ .type }}" value="{{ .duration }}"></td>
+      </tr>
+      {{ end }}
+      </tbody>
+    </table>
 
-  <button type="submit">Submit</button>
-</form>
+    <button type="submit" class="btn btn-primary">Отправить</button>
+  </form>
+</div>
 {{ end }}

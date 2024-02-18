@@ -10,13 +10,6 @@ import (
 	"time"
 )
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func isOperator(c rune) bool {
 	return c == '+' || c == '-' || c == '*' || c == '/'
 }
@@ -154,7 +147,7 @@ func Evaluate(equationID int) error {
 		return err
 	}
 	mu := &sync.Mutex{}
-	equation := database.GetEquation(equationID)
+	equation := database.GetEquationText(equationID)
 	var result float64
 	result, err = evaluateRec(database, equationID, equation, mu)
 	if err != nil {

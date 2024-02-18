@@ -273,7 +273,7 @@ func (db *DB) GetOperationTime(operation string) (int, error) {
 	return duration, nil
 }
 
-func (db *DB) GetEquation(id int) string {
+func (db *DB) GetEquationText(id int) string {
 	rows, err := db.Query("SELECT text FROM Equations WHERE ID = ?", id)
 	if err != nil {
 		return ""
@@ -293,6 +293,30 @@ func (db *DB) GetEquation(id int) string {
 		return equation
 	}
 	return ""
+}
+
+func (db *DB) GetEquationInfo(id int) (string, string, float64) {
+	rows, err := db.Query("SELECT * FROM Equations WHERE ID = ?", id)
+	if err != nil {
+		return "", "", 0
+	}
+	defer func(rows *sql.Rows) {
+		err = rows.Close()
+		if err != nil {
+			return
+		}
+	}(rows)
+	if rows.Next() {
+		var text string
+		var status string
+		var result float64
+		err = rows.Scan(&id, &text, &status, &result)
+		if err != nil {
+			return "", "", 0
+		}
+		return text, status, result
+	}
+	return "", "", 0
 }
 
 func (db *DB) AddComputer() error {

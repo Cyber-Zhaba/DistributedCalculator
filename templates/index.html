@@ -1,11 +1,20 @@
 {{ define "content" }}
-<form action="/add_equation" method="post">
-  <label for="id">Enter a number:</label><br>
-  <input id="id" name="id" placeholder="Enter a number" type="number"><br><br>
-
-  <label for="text">Enter some text:</label><br>
-  <input id="text" name="text" placeholder="Enter some text" required type="text"><br><br>
-
-  <input type="submit" value="Submit">
-</form>
+<div class="container mt-5">
+  <form action="/add_equation" method="post">
+    <div class="row">
+      <div class="col">
+        <input type="text" class="form-control" id="Input" name="id" placeholder="Введите id запроса">
+      </div>
+      <div class="col-sm-1 text-center">
+        или
+      </div>
+      <div class="col">
+        <input type="text" class="form-control" id="Input2" name="text" placeholder="Выражение вида 1+(2*3)">
+      </div>
+      <div class="row-6 my-6">
+        <button type="submit" class="btn btn-primary mt-3">Отправить</button>
+      </div>
+    </div>
+  </form>
+</div>
 {{ end }}
