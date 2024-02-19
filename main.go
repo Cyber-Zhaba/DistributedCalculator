@@ -101,7 +101,8 @@ func getEquationHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Connect to the database
-	database, err := db.Connect("data.db")
+	var database *db.DB
+	database, err = db.Connect("data.db")
 	if err != nil {
 		log.Fatal(err)
 		return
@@ -118,7 +119,8 @@ func getEquationHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Equation not found", http.StatusNotFound)
 		return
 	}
-	jsonStr, err := json.Marshal(map[string]interface{}{
+	var jsonStr []byte
+	jsonStr, err = json.Marshal(map[string]interface{}{
 		"id":     id,
 		"text":   equation,
 		"status": status,
@@ -130,7 +132,10 @@ func getEquationHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(jsonStr)
+	_, err = w.Write(jsonStr)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func equationsHandler(w http.ResponseWriter, r *http.Request) {
@@ -150,7 +155,8 @@ func equationsHandler(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 	}
 
-	tmpl, err := template.ParseFiles("templates\\base.html", "templates\\equations.html")
+	var tmpl *template.Template
+	tmpl, err = template.ParseFiles("templates\\base.html", "templates\\equations.html")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		log.Fatal(err)
@@ -261,7 +267,8 @@ func computersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	values, err := database.GetAllValues("Computers")
+	var values []map[string]interface{}
+	values, err = database.GetAllValues("Computers")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -348,10 +355,9 @@ func main() {
 		fmt.Println("Failed to open log file:", err)
 	}
 	log.SetOutput(logFile)
-	log.Println("This is a test log message")
+	log.Println("Server started")
 
 	http.HandleFunc("/", indexHandler)
-
 	http.HandleFunc("/add_equation", addEquationHandler)
 	http.HandleFunc("/get/", getEquationHandler)
 	http.HandleFunc("/equations", equationsHandler)
