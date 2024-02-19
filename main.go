@@ -109,7 +109,7 @@ func addEquationHandler(w http.ResponseWriter, r *http.Request) {
 			}()
 
 			// Redirect to the root route
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			http.Redirect(w, r, "/equations", http.StatusSeeOther)
 		}
 	}
 }
