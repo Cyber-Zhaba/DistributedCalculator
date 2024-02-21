@@ -18,7 +18,7 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println("Index handler")
 
 	// Parse the HTML templates
-	tmpl, err := template.ParseFiles("templates\\base.html", "templates\\index.html")
+	tmpl, err := template.ParseFiles("templates/base.html", "templates/index.html")
 	// Check if there was an error parsing the templates
 	if err != nil {
 		// Send an HTTP 500 error and log the error
@@ -197,7 +197,7 @@ func equationsHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Parse the HTML templates
 	var tmpl *template.Template
-	tmpl, err = template.ParseFiles("templates\\base.html", "templates\\equations.html")
+	tmpl, err = template.ParseFiles("templates/base.html", "templates/equations.html")
 	if err != nil {
 		// Send an HTTP 500 error and log the error
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -247,7 +247,7 @@ func operationsHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Parse the HTML templates
 	var tmpl *template.Template
-	tmpl, err = template.ParseFiles("templates\\base.html", "templates\\operations.html")
+	tmpl, err = template.ParseFiles("templates/base.html", "templates/operations.html")
 	if err != nil {
 		// Send an HTTP 500 error and log the error
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -339,7 +339,7 @@ func computersHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Parse the HTML templates
 	var tmpl *template.Template
-	tmpl, err = template.ParseFiles("templates\\base.html", "templates\\computers.html")
+	tmpl, err = template.ParseFiles("templates/base.html", "templates/computers.html")
 	if err != nil {
 		// Send an HTTP 500 error and log the error
 		http.Error(w, err.Error(), http.StatusInternalServerError)
