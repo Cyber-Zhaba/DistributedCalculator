@@ -64,8 +64,6 @@ func addEquationHandler(w http.ResponseWriter, r *http.Request) {
 		// Get the id and text from the form data
 		idStr := r.FormValue("id")
 		text := r.FormValue("text")
-		fmt.Println(text)
-
 		// Connect to the database
 		database, err := db.Connect("data.db")
 		if err != nil {
