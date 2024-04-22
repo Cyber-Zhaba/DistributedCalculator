@@ -5,13 +5,164 @@ import (
 	"DistributedCalculator/db"
 	"encoding/json"
 	"fmt"
+	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
 	"html/template"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
+
+var hmacSampleSecret = []byte("super_secret_signature")
+
+func RegisterHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		tmpl, err := template.ParseFiles("templates/base.html", "templates/register.html")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		err = tmpl.ExecuteTemplate(w, "base.html", nil)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	} else if r.Method == "POST" {
+		// Get username and password from the request
+		username := r.FormValue("username")
+		password := r.FormValue("password")
+
+		// Hash the password
+		hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(password), 8)
+
+		// Connect to the database
+		database, _ := db.Connect("data.db")
+
+		// Store the username and hashed password in the database
+		err := database.AddUser(username, string(hashedPassword))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Close the database connection
+		database.Close()
+
+		// Redirect the user to the login page
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+	}
+}
+
+func LoginHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		tmpl, err := template.ParseFiles("templates/base.html", "templates/login.html")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		err = tmpl.ExecuteTemplate(w, "base.html", nil)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	} else if r.Method == "POST" {
+		// Get username and password from the request
+		username := r.FormValue("username")
+		password := r.FormValue("password")
+
+		// Connect to the database
+		database, _ := db.Connect("data.db")
+
+		// Get the hashed password of the user from the database
+		hashedPassword, err := database.GetUserPassword(username)
+
+		// Compare the stored hashed password, with the hashed version of the password that was received
+		if err = bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password)); err != nil {
+			// If the two passwords don't match, return a 401 status
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		// If the passwords match, create a new token for the user
+		now := time.Now()
+		claims := jwt.MapClaims{
+			"name": username,
+			"nbf":  now.Add(time.Minute).Unix(),
+			"exp":  now.Add(5 * time.Minute).Unix(),
+			"iat":  now.Unix(),
+		}
+
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		tokenString, err := token.SignedString(hmacSampleSecret)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Finally, we set the client cookie for "token" as the JWT we just generated
+		http.SetCookie(w, &http.Cookie{
+			Name:    "token",
+			Value:   tokenString,
+			Expires: now.Add(5 * time.Minute),
+		})
+
+		// Close the database connection
+		database.Close()
+	}
+}
+
+func AuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := r.Cookie("token")
+		if err != nil {
+			if err == http.ErrNoCookie {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		tokenStr := c.Value
+
+		tokenFromString, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+
+			return hmacSampleSecret, nil
+		})
+
+		if err != nil {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		if claims, ok := tokenFromString.Claims.(jwt.MapClaims); ok && tokenFromString.Valid {
+			fmt.Println("user name: ", claims["name"])
+		} else {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func LogoutHandler(w http.ResponseWriter, r *http.Request) {
+	// Удалите куки, установив истекшую дату
+	http.SetCookie(w, &http.Cookie{
+		Name:    "token",
+		Value:   "",
+		Expires: time.Unix(0, 0),
+	})
+
+	// Перенаправьте пользователя на страницу входа
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	// Log the handler call
@@ -221,7 +372,6 @@ func equationsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 }
-
 func operationsHandler(w http.ResponseWriter, r *http.Request) {
 	// Connect to the database
 	database, err := db.Connect("data.db")
@@ -446,14 +596,18 @@ func main() {
 	log.Println("Server started")
 
 	// Define the HTTP routes and their handlers
-	http.HandleFunc("/", indexHandler)
-	http.HandleFunc("/add_equation", addEquationHandler)
-	http.HandleFunc("/get/", getEquationHandler)
-	http.HandleFunc("/equations", equationsHandler)
-	http.HandleFunc("/operations", operationsHandler)
-	http.HandleFunc("/computers", computersHandler)
-	http.HandleFunc("/update_operations", updateOperationsHandler)
-	http.HandleFunc("/add_computer", addComputerHandler)
+	http.HandleFunc("/register", RegisterHandler)
+	http.HandleFunc("/login", LoginHandler)
+	http.HandleFunc("/logout", LogoutHandler)
+
+	http.Handle("/", AuthMiddleware(http.HandlerFunc(indexHandler)))
+	http.Handle("/add_equation", AuthMiddleware(http.HandlerFunc(addEquationHandler)))
+	http.Handle("/get/", AuthMiddleware(http.HandlerFunc(getEquationHandler)))
+	http.Handle("/equations", AuthMiddleware(http.HandlerFunc(equationsHandler)))
+	http.Handle("/operations", AuthMiddleware(http.HandlerFunc(operationsHandler)))
+	http.Handle("/computers", AuthMiddleware(http.HandlerFunc(computersHandler)))
+	http.Handle("/update_operations", AuthMiddleware(http.HandlerFunc(updateOperationsHandler)))
+	http.Handle("/add_computer", AuthMiddleware(http.HandlerFunc(addComputerHandler)))
 
 	// Start the HTTP server
 	err = http.ListenAndServe(":8080", nil)

@@ -2,7 +2,9 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	_ "github.com/mattn/go-sqlite3"
+	"golang.org/x/crypto/bcrypt"
 	"strconv"
 )
 
@@ -39,6 +41,48 @@ func (db *DB) Init() error {
 	if err != nil {
 		return err
 	}
+	err = db.AddUsersTable()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (db *DB) AddUsersTable() error {
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS Users (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		username TEXT NOT NULL UNIQUE,
+		password VARCHAR(255) NOT NULL
+	)`)
+	return err
+}
+
+func (db *DB) GetUserPassword(username string) (string, error) {
+	var hashedPassword string
+	err := db.QueryRow("SELECT password FROM Users WHERE username = ?", username).Scan(&hashedPassword)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", errors.New("username not found")
+		}
+		return "", err
+	}
+	return hashedPassword, nil
+}
+
+func (db *DB) AddUser(username, password string) error {
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), 8)
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec(`INSERT INTO Users (username, password) VALUES (?, ?)`, username, hashedPassword)
+	if err != nil {
+		if err.Error() == "UNIQUE constraint failed: Users.username" {
+			return errors.New("username already exists")
+		}
+		return err
+	}
+
 	return nil
 }
 
