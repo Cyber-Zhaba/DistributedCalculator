@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	_ "github.com/mattn/go-sqlite3"
-	"golang.org/x/crypto/bcrypt"
 	"strconv"
 )
 
@@ -13,11 +12,7 @@ type DB struct {
 }
 
 func (db *DB) Init() error {
-	_, err := db.Exec("CREATE TABLE IF NOT EXISTS Equations (ID INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT, status TEXT, result REAL)")
-	if err != nil {
-		return err
-	}
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS Operations (type TEXT PRIMARY KEY, duration INTEGER)")
+	_, err := db.Exec("CREATE TABLE IF NOT EXISTS Operations (type TEXT PRIMARY KEY, duration INTEGER)")
 	if err != nil {
 		return err
 	}
@@ -42,6 +37,14 @@ func (db *DB) Init() error {
 		return err
 	}
 	err = db.AddUsersTable()
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS Equations (
+		ID INTEGER PRIMARY KEY AUTOINCREMENT, 
+		text TEXT, 
+		status TEXT, 
+		result REAL,
+		user_id INTEGER,
+		FOREIGN KEY(user_id) REFERENCES Users(id)
+	)`)
 	if err != nil {
 		return err
 	}
@@ -69,13 +72,31 @@ func (db *DB) GetUserPassword(username string) (string, error) {
 	return hashedPassword, nil
 }
 
-func (db *DB) AddUser(username, password string) error {
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), 8)
+func (db *DB) GetEquationUserId(id int) (int, error) {
+	// Execute the SQL query to fetch the user_id from the Equations table where ID equals the given id
+	rows, err := db.Query("SELECT user_id FROM Equations WHERE ID = ?", id)
 	if err != nil {
-		return err
+		return 0, err
 	}
+	defer func(rows *sql.Rows) {
+		err = rows.Close()
+		if err != nil {
+			return
+		}
+	}(rows)
 
-	_, err = db.Exec(`INSERT INTO Users (username, password) VALUES (?, ?)`, username, hashedPassword)
+	var userId int
+	if rows.Next() {
+		err = rows.Scan(&userId)
+		if err != nil {
+			return 0, err
+		}
+	}
+	return userId, nil
+}
+
+func (db *DB) AddUser(username, hashedPassword string) error {
+	_, err := db.Exec(`INSERT INTO Users (username, password) VALUES (?, ?)`, username, hashedPassword)
 	if err != nil {
 		if err.Error() == "UNIQUE constraint failed: Users.username" {
 			return errors.New("username already exists")
@@ -163,11 +184,11 @@ func (db *DB) GetAllValues(tableName string) ([]map[string]interface{}, error) {
 // AddEquation adds a new row with the given text to the specified table.
 // If the id is 0, it auto-increments the id.
 // If the id is not 0, it inserts the equation with the given id, or ignores it if the id already exists in the table.
-func (db *DB) AddEquation(id int, text string, tableName string) (int, error) {
+func (db *DB) AddEquation(id int, text string, tableName string, user_id int) (int, error) {
 	// Prepare the SQL statement
 	if id == 0 {
 		// If id is 0, prepare an SQL statement to insert the equation text with an auto-incremented id
-		stmt, err := db.Prepare("INSERT INTO " + tableName + " (text, status, result) VALUES (?, ?, ?)")
+		stmt, err := db.Prepare("INSERT INTO " + tableName + " (text, status, result, user_id) VALUES (?, ?, ?, ?)")
 		if err != nil {
 			return 0, err
 		}
@@ -179,7 +200,7 @@ func (db *DB) AddEquation(id int, text string, tableName string) (int, error) {
 		}(stmt)
 
 		// Execute the SQL statement
-		_, err = stmt.Exec(text, "In queue", 0)
+		_, err = stmt.Exec(text, "In queue", 0, user_id)
 		if err != nil {
 			return 0, err
 		}
@@ -201,7 +222,7 @@ func (db *DB) AddEquation(id int, text string, tableName string) (int, error) {
 		return 0, nil
 	} else {
 		// If id is not 0, prepare an SQL statement to insert the equation with the given id, or ignore it if the id already exists
-		stmt, err := db.Prepare("INSERT OR IGNORE INTO " + tableName + " (ID, text, status, result) VALUES (?, ?, ?, ?)")
+		stmt, err := db.Prepare("INSERT OR IGNORE INTO " + tableName + " (ID, text, status, result, user_id) VALUES (?, ?, ?, ?, ?)")
 		if err != nil {
 			return 0, err
 		}
@@ -213,12 +234,21 @@ func (db *DB) AddEquation(id int, text string, tableName string) (int, error) {
 		}(stmt)
 
 		// Execute the SQL statement
-		_, err = stmt.Exec(id, text, "in queue", 0)
+		_, err = stmt.Exec(id, text, "in queue", 0, user_id)
 		if err != nil {
 			return 0, err
 		}
 		return id, nil
 	}
+}
+
+func (db *DB) GetUserID(username string) (int, error) {
+	var id int
+	err := db.QueryRow("SELECT id FROM Users WHERE username = ?", username).Scan(&id)
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 func (db *DB) UpdateOperations(operationType []string, duration []string) error {
@@ -248,6 +278,76 @@ func (db *DB) UpdateOperations(operationType []string, duration []string) error 
 		}
 	}
 	return nil
+}
+
+func (db *DB) GetEquationByUser(userLogin string, isAuth bool) ([]map[string]interface{}, error) {
+	// Get the id of the user with the given userLogin
+	userID, err := db.GetUserID(userLogin)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the user is not authenticated, return an empty slice and an error
+	if !isAuth {
+		return []map[string]interface{}{}, errors.New("user is not authenticated")
+	}
+
+	// Execute the SQL query to fetch all rows from the Equations table where user_id equals the user's id
+	rows, err := db.Query("SELECT * FROM Equations WHERE user_id = ?", userID)
+	if err != nil {
+		return nil, err
+	}
+	defer func(rows *sql.Rows) {
+		err = rows.Close()
+		if err != nil {
+			return
+		}
+	}(rows)
+
+	// Get the column names from the result set
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	// Initialize the slice to hold the result maps
+	var result []map[string]interface{}
+	// Iterate over the rows in the result set
+	for rows.Next() {
+		// Create slices to hold the values and their pointers
+		values := make([]interface{}, len(columns))
+		valuePtr := make([]interface{}, len(columns))
+		// Populate the pointer slice with pointers to the values in the values slice
+		for i := range columns {
+			valuePtr[i] = &values[i]
+		}
+
+		// Scan the current row into the valuePtr slice
+		if err := rows.Scan(valuePtr...); err != nil {
+			return nil, err
+		}
+
+		// Create a map to hold the column-value pairs of the current row
+		row := make(map[string]interface{})
+		// Populate the map with the column-value pairs
+		for i, column := range columns {
+			val := values[i]
+			if val != nil {
+				row[column] = val
+			} else {
+				row[column] = nil
+			}
+		}
+		// Append the map to the result slice
+		result = append(result, row)
+	}
+	// Check for any error that occurred while iterating over the rows
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Return the result slice and nil error
+	return result, nil
 }
 
 func (db *DB) GetEmptyComputer() (int, error) {
@@ -359,10 +459,10 @@ func (db *DB) GetEquationText(id int) string {
 	return ""
 }
 
-func (db *DB) GetEquationInfo(id int) (string, string, float64) {
+func (db *DB) GetEquationInfo(id int) (string, string, float64, int) {
 	rows, err := db.Query("SELECT * FROM Equations WHERE ID = ?", id)
 	if err != nil {
-		return "", "", 0
+		return "", "", 0, 0
 	}
 	defer func(rows *sql.Rows) {
 		err = rows.Close()
@@ -374,13 +474,14 @@ func (db *DB) GetEquationInfo(id int) (string, string, float64) {
 		var text string
 		var status string
 		var result float64
-		err = rows.Scan(&id, &text, &status, &result)
+		var userId int
+		err = rows.Scan(&id, &text, &status, &result, &userId)
 		if err != nil {
-			return "", "", 0
+			return "", "", 0, 0
 		}
-		return text, status, result
+		return text, status, result, userId
 	}
-	return "", "", 0
+	return "", "", 0, 0
 }
 
 func (db *DB) AddComputer() error {

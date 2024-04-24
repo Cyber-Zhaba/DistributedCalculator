@@ -15,34 +15,40 @@ go run main.go
 На главной странице присутствует возможность добавления новых выражений, а также возможность получить json-ответ на запрос `GET /get/expression_id`
 ## Примеры запросов
 Приложение поддерживает веб-интерфейс, а также возможность отправлять запросы через curl.
-### Добавление выражения
-Стоит учитывать, что символ `+` часто интерпретируется как пробел. Это стандартное поведение при кодировании URL. Если вы хотите передать символ "+", вам нужно его закодировать. В URL кодировании "+" становится "%2B".
+### Регистрация нового пользователя
 ```bash
-curl -X POST -d "text=1%2B2-3*4/5" http://localhost:8080/add_equation
+curl -X POST -H "Content-Type: application/json" -d '{"login": "your_username", "password": "your_password"}' http://localhost:8080/api/v1/register
 ```
-### Проверка состояния выражения
+### Авторизация
 ```bash
-curl http://localhost:8080/get/1
+curl -X POST -H "Content-Type: application/json" -d '{"login": "your_username", "password": "your_password"}' http://localhost:8080/api/v1/login
 ```
-### Обновелние времени выполнения операции
-На `/update_operations` можно отправлять POST-запросы с параметрами вида `time_+=1`, `time_-=1`, `time_*=1`, `time_/=1`. Все они обновляют соответствующие поля в базе данных на 1.
+### Получение выражения по id
 ```bash
-curl -X POST -d "time_%2B=1&time_-=1&time_*=1&time_/=1" http://localhost:8080/update_operations
+curl -X POST -H "Content-Type: application/json" -d '{"login": "your_username", "password": "your_password"}' http://localhost:8080/api/v1/register
 ```
-### Добавление нового вычислителя
-Для увеличения количества одновременно работующих горутин можно добавить нового вычислителя.
+
+## Тестирование
+Для тестирования запустите команду
 ```bash
-curl -X POST http://localhost:8080/add_computer
+go test ./...
 ```
+
 ## Структура проекта
 ```mermaid
 classDiagram
+    Users <-- Equations
     Equations <-- Computers
+    class Users{
+      login
+      hashed_password
+    }
     class Equations{
       ID
       text
       status
       result
+      user_id
       +evalute()
       +getStatus()
     }

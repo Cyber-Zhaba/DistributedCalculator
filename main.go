@@ -18,6 +18,94 @@ import (
 
 var hmacSampleSecret = []byte("super_secret_signature")
 
+func RegisterAPIHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var user struct {
+		Login    string `json:"login"`
+		Password string `json:"password"`
+	}
+
+	err := json.NewDecoder(r.Body).Decode(&user)
+	if err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), 8)
+	if err != nil {
+		http.Error(w, "Failed to hash password", http.StatusInternalServerError)
+		return
+	}
+
+	database, err := db.Connect("data.db")
+	if err != nil {
+		http.Error(w, "Failed to connect to database", http.StatusInternalServerError)
+		return
+	}
+	defer database.Close()
+
+	err = database.AddUser(user.Login, string(hashedPassword))
+	if err != nil {
+		http.Error(w, "Failed to add user to database", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func LoginAPIHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var user struct {
+		Login    string `json:"login"`
+		Password string `json:"password"`
+	}
+
+	err := json.NewDecoder(r.Body).Decode(&user)
+	if err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	database, err := db.Connect("data.db")
+	if err != nil {
+		http.Error(w, "Failed to connect to database", http.StatusInternalServerError)
+		return
+	}
+	defer database.Close()
+
+	hashedPassword, err := database.GetUserPassword(user.Login)
+	if err != nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	if err = bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(user.Password)); err != nil {
+		http.Error(w, "Invalid password", http.StatusUnauthorized)
+		return
+	}
+
+	token := jwt.New(jwt.SigningMethodHS256)
+	claims := token.Claims.(jwt.MapClaims)
+	claims["name"] = user.Login
+	claims["exp"] = time.Now().Add(time.Hour * 72).Unix()
+
+	tokenString, err := token.SignedString(hmacSampleSecret)
+	if err != nil {
+		http.Error(w, "Failed to create token", http.StatusInternalServerError)
+		return
+	}
+
+	w.Write([]byte(tokenString))
+}
+
 func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		tmpl, err := template.ParseFiles("templates/base.html", "templates/register.html")
@@ -25,7 +113,18 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		err = tmpl.ExecuteTemplate(w, "base.html", nil)
+		userLogin, isAuth := getUserLogin(r)
+		data := struct {
+			Title     string
+			IsAuth    bool
+			UserLogin string
+		}{
+			Title:     "Регистрация",
+			IsAuth:    isAuth,
+			UserLogin: userLogin,
+		}
+		err = tmpl.ExecuteTemplate(w, "base.html", data)
+
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -63,7 +162,17 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		err = tmpl.ExecuteTemplate(w, "base.html", nil)
+		userLogin, isAuth := getUserLogin(r)
+		data := struct {
+			Title     string
+			IsAuth    bool
+			UserLogin string
+		}{
+			Title:     "Вход",
+			IsAuth:    isAuth,
+			UserLogin: userLogin,
+		}
+		err = tmpl.ExecuteTemplate(w, "base.html", data)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -90,7 +199,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		now := time.Now()
 		claims := jwt.MapClaims{
 			"name": username,
-			"nbf":  now.Add(time.Minute).Unix(),
+			"nbf":  now.Unix(),
 			"exp":  now.Add(5 * time.Minute).Unix(),
 			"iat":  now.Unix(),
 		}
@@ -111,6 +220,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 		// Close the database connection
 		database.Close()
+		http.Redirect(w, r, "/", http.StatusSeeOther)
 	}
 }
 
@@ -119,7 +229,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		c, err := r.Cookie("token")
 		if err != nil {
 			if err == http.ErrNoCookie {
-				w.WriteHeader(http.StatusUnauthorized)
+				http.Redirect(w, r, "/register", http.StatusSeeOther)
 				return
 			}
 			w.WriteHeader(http.StatusBadRequest)
@@ -141,8 +251,8 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		if claims, ok := tokenFromString.Claims.(jwt.MapClaims); ok && tokenFromString.Valid {
-			fmt.Println("user name: ", claims["name"])
+		if _, ok := tokenFromString.Claims.(jwt.MapClaims); ok && tokenFromString.Valid {
+
 		} else {
 			http.Error(w, "Invalid token", http.StatusUnauthorized)
 			return
@@ -179,10 +289,15 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create a data structure to hold the page title
+	userLogin, isAuth := getUserLogin(r)
 	data := struct {
-		Title string
+		Title     string
+		IsAuth    bool
+		UserLogin string
 	}{
-		Title: "Добавить выражение",
+		Title:     "Добавить выражение",
+		IsAuth:    isAuth,
+		UserLogin: userLogin,
 	}
 
 	// Execute the template with the data
@@ -244,7 +359,9 @@ func addEquationHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Add the equation to the database
-			id, err = database.AddEquation(id, text, "Equations")
+			userLogin, _ := getUserLogin(r)
+			userId, _ := database.GetUserID(userLogin)
+			id, err = database.AddEquation(id, text, "Equations", userId)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -294,8 +411,27 @@ func getEquationHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	// Get the user id from the JWT token
+	userLogin, _ := getUserLogin(r)
+	userId, _ := database.GetUserID(userLogin)
+
+	// Get the user_id of the equation from the database
+	equationUserId, err := database.GetEquationUserId(id)
+	if err != nil {
+		// Send an HTTP 404 error for equation not found
+		http.Error(w, "Equation not found", http.StatusNotFound)
+		return
+	}
+
+	// Compare the user id from the JWT token with the user_id of the equation
+	if userId != equationUserId {
+		// Send an HTTP 401 error for Unauthorized
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	// Get the equation with the given id
-	equation, status, result := database.GetEquationInfo(id)
+	equation, status, result, _ := database.GetEquationInfo(id)
 	if err != nil {
 		// Send an HTTP 404 error for equation not found
 		http.Error(w, "Equation not found", http.StatusNotFound)
@@ -323,6 +459,7 @@ func getEquationHandler(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 	}
 }
+
 func equationsHandler(w http.ResponseWriter, r *http.Request) {
 	// Connect to the database
 	database, err := db.Connect("data.db")
@@ -339,7 +476,7 @@ func equationsHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Retrieve all equations from the database
 	var values []map[string]interface{}
-	values, err = database.GetAllValues("Equations")
+	values, err = database.GetEquationByUser(getUserLogin(r))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -355,12 +492,17 @@ func equationsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create a data structure to hold the page title and equations
+	userLogin, isAuth := getUserLogin(r)
 	data := struct {
 		Title     string
 		Equations []map[string]interface{}
+		IsAuth    bool
+		UserLogin string
 	}{
 		Title:     "Выражения",
 		Equations: values,
+		IsAuth:    isAuth,
+		UserLogin: userLogin,
 	}
 
 	// Execute the template with the data
@@ -404,12 +546,17 @@ func operationsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create a data structure to hold the page title and operations
+	userLogin, isAuth := getUserLogin(r)
 	data := struct {
 		Title      string
 		Operations []map[string]interface{}
+		IsAuth     bool
+		UserLogin  string
 	}{
 		Title:      "Операции",
 		Operations: values,
+		IsAuth:     isAuth,
+		UserLogin:  userLogin,
 	}
 
 	// Execute the template with the data
@@ -496,12 +643,17 @@ func computersHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create a data structure to hold the page title and computers
+	userLogin, isAuth := getUserLogin(r)
 	data := struct {
 		Title     string
 		Computers []map[string]interface{}
+		IsAuth    bool
+		UserLogin string
 	}{
 		Title:     "Вычислители",
 		Computers: values,
+		IsAuth:    isAuth,
+		UserLogin: userLogin,
 	}
 
 	// Execute the template with the data
@@ -556,6 +708,33 @@ func addComputerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func getUserLogin(r *http.Request) (string, bool) {
+	c, err := r.Cookie("token")
+	if err != nil {
+		return "", false
+	}
+
+	tokenStr := c.Value
+
+	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+
+		return hmacSampleSecret, nil
+	})
+
+	if err != nil {
+		return "", false
+	}
+
+	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		return claims["name"].(string), true
+	} else {
+		return "", false
+	}
+}
+
 func main() {
 	// Check if database exists and create it if it doesn't
 	_, err := os.Stat("data.db")
@@ -604,10 +783,12 @@ func main() {
 	http.Handle("/add_equation", AuthMiddleware(http.HandlerFunc(addEquationHandler)))
 	http.Handle("/get/", AuthMiddleware(http.HandlerFunc(getEquationHandler)))
 	http.Handle("/equations", AuthMiddleware(http.HandlerFunc(equationsHandler)))
-	http.Handle("/operations", AuthMiddleware(http.HandlerFunc(operationsHandler)))
-	http.Handle("/computers", AuthMiddleware(http.HandlerFunc(computersHandler)))
-	http.Handle("/update_operations", AuthMiddleware(http.HandlerFunc(updateOperationsHandler)))
-	http.Handle("/add_computer", AuthMiddleware(http.HandlerFunc(addComputerHandler)))
+	http.Handle("/operations", http.HandlerFunc(operationsHandler))
+	http.Handle("/computers", http.HandlerFunc(computersHandler))
+	http.Handle("/update_operations", http.HandlerFunc(updateOperationsHandler))
+	http.Handle("/add_computer", http.HandlerFunc(addComputerHandler))
+	http.HandleFunc("/api/v1/register", RegisterAPIHandler)
+	http.HandleFunc("/api/v1/login", LoginAPIHandler)
 
 	// Start the HTTP server
 	err = http.ListenAndServe(":8080", nil)
